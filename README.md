@@ -1,3 +1,7 @@
+# easy_tensorflow_fcn
+fcn realization by tensorflow and python3 This project is a reconstruction version of the kittiseg which is maintained by the MarvinTeichmann.https://github.com/MarvinTeichmann/KittiSeg#kittiseg He used python2.7 and tensorflow 1.0 to realize it, and I think maybe I can implement it in python3 and adjust some file to make the code be more readable. Have fun.
+
+
 # KittiSeg
 
 KittiSeg performs segmentation of roads by utilizing an FCN based model. The model achieved [first place](http://www.cvlibs.net/datasets/kitti/eval_road_detail.php?result=ca96b8137feb7a636f3d774c408b1243d8a6e0df) on the Kitti Road Detection Benchmark at submission time. Check out our [paper](https://arxiv.org/abs/1612.07695) for a detailed model description.
