@@ -1,14 +1,3 @@
-"""
-Load Kitti Segmentation Input
--------------------------------
-
-The MIT License (MIT)
-
-Copyright (c) 2017 Marvin Teichmann
-
-Details: https://github.com/MarvinTeichmann/KittiSeg/blob/master/LICENSE
-"""
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -23,15 +12,13 @@ from random import shuffle
 
 import numpy as np
 import scipy as scp
-import imageio
+from PIL import Image
 import tensorflow as tf
 from tensorflow.python.ops import math_ops
 from tensorflow.python.training import queue_runner
 from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.framework import dtypes
-
 import threading
-
 
 logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
                     level=logging.INFO,
@@ -43,54 +30,20 @@ def maybe_download_and_extract(hypes):
 
     """
 
-    data_dir = hypes['dirs']['data_dir']
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
+    data_dir = os.path.abspath('')
 
-    data_road_zip = os.path.join(data_dir, 'data_road.zip')
-    vgg_weights = os.path.join(data_dir, 'weights/vgg16.npy')
-    kitti_road_dir = os.path.join(data_dir, 'data_road/')
+    vgg_weights = os.path.join(data_dir, 'DATA/weights/vgg16.npy')
 
-    if os.path.exists(vgg_weights) and os.path.exists(kitti_road_dir):
+    if os.path.exists(vgg_weights):
+        hypes['dirs']['vgg_dir'] = vgg_weights
         return
 
     import stwn.modules.tensorvision.utils as utils
     import zipfile
     from shutil import copy2
 
-    # Download KITTI DATA
-    kitti_data_url = hypes['data']['kitti_url']
 
-    if kitti_data_url == '':
-        logging.error("Data URL for Kitti Data not provided.")
-        url = "http://www.cvlibs.net/download.php?file=data_road.zip"
-        logging.error("Please visit: {}".format(url))
-        logging.error("and request Kitti Download link.")
-        logging.error("Enter URL in hypes/kittiSeg.json")
-        exit(1)
-    if not kitti_data_url[-19:] == 'kitti/data_road.zip':
-        logging.error("Wrong url.")
-        url = "http://www.cvlibs.net/download.php?file=data_road.zip"
-        logging.error("Please visit: {}".format(url))
-        logging.error("and request Kitti Download link.")
-        logging.error("Enter URL in hypes/kittiSeg.json")
-        exit(1)
-
-    logging.info("Downloading Kitti Road Data.")
-    utils.download(kitti_data_url, data_dir)
-    # Extract and prepare KITTI DATA
-    logging.info("Extracting kitti_road data.")
-    zipfile.ZipFile(data_road_zip, 'r').extractall(data_dir)
-    kitti_road_dir = os.path.join(data_dir, 'data_road/')
-
-    logging.info("Preparing kitti_road data.")
-
-    train_txt = "data/train3.txt"
-    val_txt = "data/val3.txt"
-    copy2(train_txt, kitti_road_dir)
-    copy2(val_txt, kitti_road_dir)
-
-    vgg_url = kitti_data_url = hypes['data']['vgg_url']
+    vgg_url = hypes['data']['vgg_url']
     # Download VGG DATA
     download_command = "wget {} -P {}".format(vgg_url, data_dir)
     logging.info("Downloading VGG weights.")
@@ -104,22 +57,25 @@ def _load_gt_file(hypes, data_file=None):
     The generator outputs the image and the gt_image.
     """
     # 在这里读取图像数据
-    base_path = os.path.realpath(os.path.dirname(data_file))
+    # base_path = os.path.realpath(os.path.dirname(data_file))
+    base_path = os.path.dirname(os.path.dirname(os.path.dirname(data_file)))
+
     files = [line.rstrip() for line in open(data_file)]
 
     for epoche in itertools.count():
         shuffle(files)
         for file in files:
-            image_file, gt_image_file = file.split(" ")
+            image_file = 'JPEGImages/' + file + '.jpg'
             image_file = os.path.join(base_path, image_file)
             assert os.path.exists(image_file), \
                 "File does not exist: %s" % image_file
-            gt_image_file = os.path.join(base_path, gt_image_file)
-            assert os.path.exists(gt_image_file), \
-                "File does not exist: %s" % gt_image_file
-            image = np.asarray(imageio.imread(image_file))
+            gt_file = 'SegmentationClass/' + file + '.png'
+            gt_file = os.path.join(base_path, gt_file)
+            assert os.path.exists(gt_file), \
+                "File does not exist: %s" % gt_file
+            image = np.array(Image.open(image_file))
             # Please update Scipy, if mode='RGB' is not avaible
-            gt_image = np.asarray(imageio.imread(gt_image_file))
+            gt_image = np.array(Image.open(gt_file))[..., np.newaxis]
 
             yield image, gt_image
 
@@ -145,27 +101,23 @@ def _make_data_gen(hypes, phase, data_dir):
         assert False, "Unknown Phase %s" % phase
 
     data_file = os.path.join(data_dir, data_file)
-
-    road_color = np.array(hypes['data']['road_color'])
-    background_color = np.array(hypes['data']['background_color'])
-
     data = _load_gt_file(hypes, data_file)
 
     for image, gt_image in data:
-
-        gt_bg = np.all(gt_image == background_color, axis=2)
-        gt_road = np.all(gt_image == road_color, axis=2)
-
-        assert(gt_road.shape == gt_bg.shape)
-        shape = gt_bg.shape
-        gt_bg = gt_bg.reshape(shape[0], shape[1], 1)
-        gt_road = gt_road.reshape(shape[0], shape[1], 1)
-
-        gt_image = np.concatenate((gt_bg, gt_road), axis=2)
+        # 因为kitty的数据集存的gt结果是3通道的，所以要用下面的代码来转换成01格式的。在pascal中没有这个问题
+        # gt_bg = np.all(gt_image == background_color, axis=2)
+        # gt_road = np.all(gt_image == road_color, axis=2)
+        #
+        # assert(gt_road.shape == gt_bg.shape)
+        # shape = gt_bg.shape
+        # gt_bg = gt_bg.reshape(shape[0], shape[1], 1)
+        # gt_road = gt_road.reshape(shape[0], shape[1], 1)
+        #
+        # gt_image = np.concatenate((gt_bg, gt_road), axis=2)
 
         if phase == 'val':
             yield image, gt_image
-        elif phase == 'train':
+        else:
             yield jitter_input(hypes, image, gt_image)
             yield jitter_input(hypes, np.fliplr(image), np.fliplr(gt_image))
 
@@ -202,7 +154,7 @@ def jitter_input(hypes, image, gt_image):
         image, gt_image = random_crop(image, gt_image,
                                       patch_height, patch_width)
 
-    assert(image.shape[:-1] == gt_image.shape[:-1])
+    assert(image.shape[:2] == gt_image.shape[:2])
     return image, gt_image
 
 
@@ -334,18 +286,24 @@ def create_queues(hypes, phase):
 
 def start_enqueuing_threads(hypes, q, phase, sess):
     """Start enqueuing threads."""
+
+    class_nums = hypes['arch']['num_classes']
     image_pl = tf.placeholder(tf.float32)
     label_pl = tf.placeholder(tf.int32)
-    data_dir = hypes['dirs']['data_dir']
+    label_onehot = tf.one_hot(label_pl, depth= class_nums, dtype=tf.int32)
+    enqueue_op = q.enqueue((image_pl, label_onehot))
 
+
+    data_dir = hypes['dirs']['data_dir']
 
     def enqueue_loop(sess, enqueue_op, phase, gen):
         # infinity loop enqueueing data
         for d in gen:
             image, label = d
+            label = np.squeeze(label)
             sess.run(enqueue_op, feed_dict={image_pl: image, label_pl: label})
 
-    enqueue_op = q.enqueue((image_pl, label_pl))
+
     gen = _make_data_gen(hypes, phase, data_dir)
     gen.__next__()
     # 先入库操作一下,保证库内存货
@@ -485,17 +443,15 @@ def inputs(hypes, q, phase):
 
 def main():
     """main."""
-    with open('../hypes/kitti_seg.json', 'r') as f:
+    with open('../../hypes/Pascal.json', 'r') as f:
         hypes = json.load(f)
 
-    q = {}
-    q['train'] = create_queues(hypes, 'train')
-    q['val'] = create_queues(hypes, 'val')
-    data_dir = "../DATA"
+    q = create_queues(hypes, 'train')
+    data_dir = "/home/lanhai/restore/dataset/pascal2012/VOCdevkit/VOC2012"
 
-    _make_data_gen(hypes, 'train', data_dir)
-
-    image_batch, label_batch = inputs(hypes, q, 'train', data_dir)
+    hypes['dirs'] = {}
+    hypes['dirs']['data_dir'] = data_dir
+    image_batch, label_batch = inputs(hypes, q, 'train')
 
     logging.info("Start running")
 
@@ -504,7 +460,7 @@ def main():
         init = tf.initialize_all_variables()
         sess.run(init)
         coord = tf.train.Coordinator()
-        start_enqueuing_threads(hypes, q, sess, data_dir)
+        start_enqueuing_threads(hypes, q, 'train',sess)
 
         logging.info("Start running")
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)

@@ -69,44 +69,33 @@ def build_training_graph(hypes, queue, modules):
         loss is a float,
         eval_lists is a dict with keys 'train' and 'val'
     """
-
-    data_input = modules['input']
-    encoder = modules['arch']
-    objective = modules['objective']
-    optimizer = modules['solver']
-
     learning_rate = tf.placeholder(tf.float32)
 
     # Add Input Producers to the Graph
     with tf.name_scope("Inputs"):
-        image, labels = data_input.inputs(hypes, queue, phase='train')
+        image, labels = modules['input'].inputs(hypes, queue, phase='train')
 
     # Run inference on the encoder network
-    logits = encoder.inference(hypes, image, train=True)
+    logits = modules['arch'].inference(hypes, image, train=True)
 
     # Build decoder on top of the logits
-    decoded_logits = objective.decoder(hypes, logits, train=True)
+    decoded_logits = modules['objective'].decoder(hypes, logits)
 
     # Add to the Graph the Ops for loss calculation.
     with tf.name_scope("Loss"):
-        losses = objective.loss(hypes, decoded_logits,
-                                labels)
+        losses = modules['objective'].loss(hypes, decoded_logits, labels)
 
     # Add to the Graph the Ops that calculate and apply gradients.
     with tf.name_scope("Optimizer"):
         global_step = tf.Variable(0, trainable=False)
         # Build training operation
-        train_op = optimizer.training(hypes, losses,
-                                      global_step, learning_rate)
+        train_op = modules['solver'].training(hypes, losses, global_step, learning_rate)
 
     with tf.name_scope("Evaluation"):
         # Add the Op to compare the logits to the labels during evaluation.
-        eval_list = objective.evaluation(
-            hypes, image, labels, decoded_logits, losses, global_step)
+        eval_list = modules['objective'].evaluation(labels, decoded_logits)
 
-        summary_op = tf.summary.merge_all()
-
-
+    summary_op = tf.summary.merge_all()
 
     graph = {}
     graph['losses'] = losses
@@ -137,9 +126,7 @@ def build_inference_graph(hypes, modules, image):
     with tf.name_scope("Validation"):
 
         logits = modules['arch'].inference(hypes, image, train=False)
-
-        decoded_logits = modules['objective'].decoder(hypes, logits,
-                                                      train=False)
+        decoded_logits = modules['objective'].decoder(hypes, logits, train=False)
     return decoded_logits
 
 
@@ -171,7 +158,7 @@ def start_tv_session(hypes):
     else:
         kc = 10000.0
 
-    saver = tf.train.Saver(max_to_keep=int(utils.cfg.max_to_keep))
+    saver = tf.train.Saver(max_to_keep=int(utils.cfg.max_to_keep), keep_checkpoint_every_n_hours=kc)
 
     sess = tf.get_default_session()
 
@@ -188,8 +175,7 @@ def start_tv_session(hypes):
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
     # Instantiate a SummaryWriter to output summaries and the Graph.
-    summary_writer = tf.summary.FileWriter(hypes['dirs']['output_dir'],
-                                           graph=sess.graph)
+    summary_writer = tf.summary.FileWriter(hypes['dirs']['output_dir'])
 
     tv_session = {}
     tv_session['sess'] = sess

@@ -223,34 +223,31 @@ def run_training(hypes, modules, tv_graph, tv_sess, start_step=0):
 
     n = 0
 
-    eval_names, eval_ops = zip(*tv_graph['eval_list'])
     # Run the training Step
     start_time = time.time()
-    for step in xrange(start_step, hypes['solver']['max_steps']):
+    for step in range(start_step+1, hypes['solver']['max_steps']+1):
 
         lr = solver.get_learning_rate(hypes, step)
         feed_dict = {tv_graph['learning_rate']: lr}
 
-        if step % display_iter:
-            sess.run([tv_graph['train_op']], feed_dict=feed_dict)
+        sess.run([tv_graph['train_op']], feed_dict=feed_dict)
 
         # Write the summaries and print an overview fairly often.
-        elif step % display_iter == 0:
+        if step % display_iter == 0:
             # Print status to stdout.
             _, loss_value = sess.run([tv_graph['train_op'],
-                                      tv_graph['losses']['total_loss']],
-                                     feed_dict=feed_dict)
+                                      tv_graph['losses']['total_loss']], feed_dict=feed_dict)
 
             _print_training_status(hypes, step, loss_value, start_time, lr)
 
-            eval_results = sess.run(eval_ops, feed_dict=feed_dict)
+            eval_value = sess.run(tv_graph['eval_list']['Acc'], feed_dict=feed_dict)
 
-            _print_eval_dict(eval_names, eval_results, prefix='   (raw)')
+            _print_eval_dict(' Segmentation Accuracy', eval_value, prefix='(raw)')
 
-            dict_smoother.update_weights(eval_results)
-            smoothed_results = dict_smoother.get_weights()
+            dict_smoother.update_weights(eval_value)
+            smooth_eval_value = dict_smoother.get_weights()
 
-            _print_eval_dict(eval_names, smoothed_results, prefix='(smooth)')
+            _print_eval_dict(' Segmentation Accuracy', smooth_eval_value, prefix='(smooth)')
 
             # Reset timer
             start_time = time.time()
@@ -261,26 +258,23 @@ def run_training(hypes, modules, tv_graph, tv_sess, start_step=0):
                 summary_str = sess.run(tv_sess['summary_op'],
                                        feed_dict=feed_dict)
                 summary_writer.add_summary(summary_str, global_step=step)
-            summary.value.add(tag='training/total_loss',
-                              simple_value=float(loss_value))
-            summary.value.add(tag='training/learning_rate',
-                              simple_value=lr)
+                summary_writer.add_graph(tf.get_default_graph())
+
+            summary.value.add(tag='training/total_loss', simple_value=float(loss_value))
+            summary.value.add(tag='training/learning_rate', simple_value=lr)
+            summary.value.add(tag='raw Segmentation Accuracy', simple_value=eval_value)
+            summary.value.add(tag='smooth Segmentation Accuracy', simple_value=smooth_eval_value)
+
             summary_writer.add_summary(summary, step)
-            # Convert numpy types to simple types.
-            eval_results = np.array(eval_results)
-            eval_results = eval_results.tolist()
-            eval_dict = zip(eval_names, eval_results)
-            _write_eval_dict_to_summary(eval_dict, 'Eval/raw',
-                                        summary_writer, step)
-            eval_dict = zip(eval_names, smoothed_results)
-            _write_eval_dict_to_summary(eval_dict, 'Eval/smooth',
-                                        summary_writer, step)
+
 
         # Do a evaluation and print the current state
         if (step) % eval_iter == 0 and step > 0 or \
-           (step + 1) == hypes['solver']['max_steps']:
+           (step) == hypes['solver']['max_steps']:
             # write checkpoint to disk
 
+
+            #TODO
             logging.info('Running Evaluation Script.')
             eval_dict, images = modules['eval'].evaluate(
                 hypes, sess, tv_graph['image_pl'], tv_graph['inf_out'])
@@ -314,7 +308,7 @@ def run_training(hypes, modules, tv_graph, tv_sess, start_step=0):
 
         # Save a checkpoint periodically.
         if (step) % save_iter == 0 and step > 0 or \
-           (step + 1) == hypes['solver']['max_steps']:
+           (step) == hypes['solver']['max_steps']:
             # write checkpoint to disk
             checkpoint_path = os.path.join(hypes['dirs']['output_dir'],
                                            'model.ckpt')
@@ -323,7 +317,7 @@ def run_training(hypes, modules, tv_graph, tv_sess, start_step=0):
             start_time = time.time()
 
         if step % image_iter == 0 and step > 0 or \
-           (step + 1) == hypes['solver']['max_steps']:
+           (step) == hypes['solver']['max_steps']:
             _write_images_to_disk(hypes, images, step)
 
 

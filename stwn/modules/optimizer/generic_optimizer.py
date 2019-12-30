@@ -82,7 +82,7 @@ def training(hypes, loss, global_step, learning_rate, opt=None):
             clipped_grads, norm = tf.clip_by_global_norm(grads, clip_norm)
             grads_and_vars = list(zip(clipped_grads, tvars))
 
-        train_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
+        # train_op = opt.apply_gradients(grads_and_vars, global_step=global_step)
 
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 

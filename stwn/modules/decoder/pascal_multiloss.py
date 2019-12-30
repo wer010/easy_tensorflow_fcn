@@ -1,33 +1,11 @@
-"""
-An implementation of FCN in tensorflow.
-------------------------
-
-The MIT License (MIT)
-
-Copyright (c) 2016 Marvin Teichmann
-
-Details: https://github.com/MarvinTeichmann/KittiSeg/blob/master/LICENSE
-"""
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+import numpy as np
 import tensorflow as tf
 
 
-def _add_softmax(hypes, logits):
-    num_classes = hypes['arch']['num_classes']
-    with tf.name_scope('decoder'):
-        logits = tf.reshape(logits, (-1, num_classes))
-        epsilon = tf.constant(value=hypes['solver']['epsilon'])
-        # logits = logits + epsilon
-
-        softmax = tf.nn.softmax(logits)
-
-    return softmax
-
-
-def decoder(hypes, logits, train):
+def decoder(hypes, logits):
     """Apply decoder to the logits.
 
     Args:
@@ -38,7 +16,11 @@ def decoder(hypes, logits, train):
     """
     decoded_logits = {}
     decoded_logits['logits'] = logits['fcn_logits']
-    decoded_logits['softmax'] = _add_softmax(hypes, logits['fcn_logits'])
+
+    num_classes = hypes['arch']['num_classes']
+    with tf.name_scope('decoder'):
+        logits = tf.reshape(decoded_logits['logits'], (-1, num_classes))
+        decoded_logits['softmax'] = tf.nn.softmax(logits)
     return decoded_logits
 
 
@@ -52,18 +34,21 @@ def loss(hypes, decoded_logits, labels):
     Returns:
       loss: Loss tensor of type float.
     """
+
+    num_classes = hypes['arch']['num_classes']
     logits = decoded_logits['logits']
     with tf.name_scope('loss'):
-        logits = tf.reshape(logits, (-1, 2))
-        shape = [logits.get_shape()[0], 2]
+        logits = tf.reshape(logits, (-1, num_classes))
         epsilon = tf.constant(value=hypes['solver']['epsilon'])
-        # logits = logits + epsilon
-        labels = tf.cast(tf.reshape(labels, (-1, 2)), dtype=tf.float32)
+        labels = tf.cast(dtype=tf.float32)
 
-        softmax = tf.nn.softmax(logits) + epsilon
+        assert tf.shape(logits)== tf.shape(labels)
+        # softmax = tf.nn.softmax(logits) + epsilon
 
         if hypes['loss'] == 'xentropy':
-            cross_entropy_mean = _compute_cross_entropy_mean(hypes, labels, softmax)
+            # cross_entropy_mean = _compute_cross_entropy_mean(hypes, labels, softmax)
+            cross_entropy_mean = tf.nn.softmax_cross_entropy_with_logits(logits,labels)
+
         elif hypes['loss'] == 'softF1':
             cross_entropy_mean = _compute_f1(hypes, labels, softmax, epsilon)
 
@@ -117,7 +102,7 @@ def _compute_soft_ui(hypes, labels, softmax, epsilon):
     return mean_iou
 
 
-def evaluation(hyp, images, labels, decoded_logits, losses, global_step):
+def evaluation(labels, decoded_logits, num_classes):
     """Evaluate the quality of the logits at predicting the label.
 
     Args:
@@ -133,7 +118,15 @@ def evaluation(hyp, images, labels, decoded_logits, losses, global_step):
     # It returns a bool tensor with shape [batch_size] that is true for
     # the examples where the label's is was in the top k (here k=1)
     # of all logits for that example.
-    eval_list = []
+
+    conf = tf.math.confusion_matrix(labels,decoded_logits,num_classes)
+
+    conf = np.array(tf.shape(labels)[-1])
+    locs = tf.less(labels,255)
+
+    eval_list = {}
+
+
     logits = tf.reshape(decoded_logits['logits'], (-1, 2))
     labels = tf.reshape(labels, (-1, 2))
 
@@ -147,9 +140,9 @@ def evaluation(hyp, images, labels, decoded_logits, losses, global_step):
     tp = tf.reduce_sum(positive*labels[:, 1])
     fp = tf.reduce_sum(positive*labels[:, 0])
 
-    eval_list.append(('Acc. ', (tn+tp)/(tn + fn + tp + fp)))
-    eval_list.append(('xentropy', losses['xentropy']))
-    eval_list.append(('weight_loss', losses['weight_loss']))
+    eval_list['Acc']= (tn+tp)/(tn + fn + tp + fp)
+    eval_list['Precision'] = (tp) / (tp + fp)
+    eval_list['Recall'] = (tp) / (fn + tp)
 
     # eval_list.append(('Precision', tp/(tp + fp)))
     # eval_list.append(('True BG', tn/(tn + fp)))

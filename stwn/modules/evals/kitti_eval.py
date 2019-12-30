@@ -10,7 +10,6 @@ import os
 import numpy as np
 import scipy as scp
 import imageio
-import random
 from stwn.modules.evaluation.kitti_devkit import seg_utils as seg
 
 import time
